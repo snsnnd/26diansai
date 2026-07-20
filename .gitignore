@@ -1,0 +1,14 @@
+Debug/
+*.o
+*.d
+*.d_raw
+*.map
+*.out
+*.hex
+*.bin
+.settings/
+.ccsproject
+.cproject
+.project
+*.launch
+*.linkInfo.xml
