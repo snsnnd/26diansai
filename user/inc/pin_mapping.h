@@ -53,43 +53,37 @@
 #define BOARD_DEBUG_UART_RX     UART1_RX_A9             /* PA9 */
 #endif
 
-/*=================================================== 云台项目默认接口 ===================================================*/
+/*=================================================== 云台 / 视觉 ===================================================*/
 
 /*
- * EMM（Eletronic Micro Module）云台电机通信使用 UART2 半双工模式。
- * UART2 同时被蓝牙调试复用，但 EMM 云台项目与 line-car 项目不会同时编译，
- * 所以无冲突风险。
+ * EMM 步进云台 + FOC 无刷云台共用 UART1 (B4/B5)。
+ * 两者不会同时启用，根据 E2025_GIMBAL_FOC 选择后端。
  */
-/* EMM 两轴电机共用 UART2: U2TX/U2RX = PB15/PB16。 */
-#define BOARD_EMM_UART          UART_2
-#define BOARD_EMM_UART_TX       UART2_TX_B15
-#define BOARD_EMM_UART_RX       UART2_RX_B16
+#define BOARD_EMM_UART           UART_1
+#define BOARD_EMM_UART_TX        UART1_TX_B4
+#define BOARD_EMM_UART_RX        UART1_RX_B5
+
+#define BOARD_FOC_GIMBAL_UART       UART_1
+#define BOARD_FOC_GIMBAL_UART_TX    UART1_TX_B4
+#define BOARD_FOC_GIMBAL_UART_RX    UART1_RX_B5
+#define BOARD_FOC_GIMBAL_UART_BAUD  115200u
+
+/*
+ * MaixCam2 视觉模块使用 UART2 (B15/B16)。
+ * 注意: Line-car 模式调试串口也使用 UART2，两者不会同时编译。
+ */
+#define BOARD_MAIXCAM_UART      UART_2
+#define BOARD_MAIXCAM_UART_TX   UART2_TX_B15
+#define BOARD_MAIXCAM_UART_RX   UART2_RX_B16
+#define BOARD_MAIXCAM_BAUDRATE  115200u
 
 /*
  * T8 灰度传感器默认使用 UART1（A8/A9）。
  * 在 line-car 模式中，调试串口被映射到蓝牙 UART2，
  * 因此 UART1 空闲出来可供 T8 使用。
  */
-/* UART1 A8/A9 is retained as the hardware-test debug port. */
 #define BOARD_T8_UART           UART_1
 #define BOARD_T8_UART_TX        UART1_TX_A8
 #define BOARD_T8_UART_RX        UART1_RX_A9
-
-/*
- * MaixCam2（K210 视觉模块）使用 UART3 通信，波特率 115200。
- * 引脚使用 B2/B3，这些引脚也可用于 T8 的 I2C 模式，
- * 但 UART3 和 T8 I2C 不会同时使用。
- */
-/* 用户指定: UART3 B2/B3 用于 MaixCam2 视觉通信。 */
-#define BOARD_MAIXCAM_UART      UART_3
-#define BOARD_MAIXCAM_UART_TX   UART3_TX_B2             /* PB2 */
-#define BOARD_MAIXCAM_UART_RX   UART3_RX_B3             /* PB3 */
-#define BOARD_MAIXCAM_BAUDRATE  115200u                  /* 通信波特率 115200 */
-
-/* FOC 无刷云台 (STM32F103 2804 驱动板) */
-#define BOARD_FOC_GIMBAL_UART       UART_1
-#define BOARD_FOC_GIMBAL_UART_TX    UART1_TX_A8
-#define BOARD_FOC_GIMBAL_UART_RX    UART1_RX_A9
-#define BOARD_FOC_GIMBAL_UART_BAUD  115200u
 
 #endif /* _PIN_MAPPING_H_ */
