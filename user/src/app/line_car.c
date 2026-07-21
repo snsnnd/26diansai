@@ -2767,6 +2767,32 @@ uint8_t car_get_line_bits(void)
     return g_line_bits;
 }
 
+void car_get_imu_accel(float *ax, float *ay, float *az)
+{
+    if (ax != NULL)
+    {
+        *ax = g_heading.ax;
+    }
+    if (ay != NULL)
+    {
+        *ay = g_heading.ay;
+    }
+    if (az != NULL)
+    {
+        *az = g_heading.az;
+    }
+}
+
+float car_get_heading_deg(void)
+{
+    return g_heading.yaw_deg;
+}
+
+float car_get_wz_dps(void)
+{
+    return g_heading.wz_dps;
+}
+
 /**
  * @brief 获取车辆运行状态描述字符串
  *

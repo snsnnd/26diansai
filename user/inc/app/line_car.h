@@ -45,6 +45,10 @@ void line_car_emergency_stop(void);
 ec_mode_manager_t *line_car_get_mode_manager(void);
 uint8_t car_get_line_bits(void);
 
+void car_get_imu_accel(float *ax, float *ay, float *az);
+float car_get_heading_deg(void);
+float car_get_wz_dps(void);
+
 /**
  * @brief 输入采集任务
  * 采集编码器输入，检查按键事件，处理电机看门狗和服务故障

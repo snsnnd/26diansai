@@ -45,6 +45,9 @@
 #include "app/line_car.h"
 #include "app/h2024_tasks.h"
 #include "app/e2025_task.h"
+
+#include "gimbal/foc_gimbal.h"
+#include "gimbal/maixcam2_protocol.h"
 #endif
 
 /**
@@ -94,6 +97,17 @@ static void ec_app_task(uint32_t now_ms, void *context)
 #if EC_APP_PROFILE == EC_APP_PROFILE_HARDWARE_TEST
     hardware_test_run();    /* 硬件测试模式下运行测试逻辑 */
 #endif
+#if EC_APP_PROFILE == EC_APP_PROFILE_LINE_CAR
+static void ec_vision_task(uint32_t now_ms, void *context)
+{
+    (void)context;
+    maixcam2_update(now_ms);
+}
+
+static void ec_foc_gimbal_task(uint32_t now_ms, void *context)
+{
+    (void)context;
+    (void)foc_gimbal_update_status(&g_foc_gimbal, now_ms);
 }
 #endif
 
@@ -130,6 +144,10 @@ void ec_app_init(void)
         h2024_tasks_register(mgr);
         e2025_tasks_register(mgr);
     }
+
+    maixcam2_init();
+    (void)foc_gimbal_init(&g_foc_gimbal);
+    (void)foc_gimbal_enable(&g_foc_gimbal, true);
 #else                                               /* 空应用模式（默认） */
     printf("[APP] profile=empty\r\n");
 #endif
@@ -159,6 +177,8 @@ void ec_app_init(void)
     ec_app_add_task("debug", line_car_debug_task, 100u, now_ms + 100u);
     /* PID调参任务 5ms周期 - 运行时参数调整 */
     ec_app_add_task("tune", line_car_tune_task, 5u, now_ms);
+    ec_app_add_task("vision", ec_vision_task, 20u, now_ms + 10u);
+    ec_app_add_task("foc_gimbal", ec_foc_gimbal_task, 100u, now_ms + 50u);
 #else
     now_ms = ec_time_ms();
     /* 非巡线车模式下只有一个通用任务，运行频率为 1ms (1000Hz) */

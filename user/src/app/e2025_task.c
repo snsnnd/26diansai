@@ -1,13 +1,11 @@
 #include "app/e2025_task.h"
 #include "app/line_car.h"
-#include "gimbal/gimbal.h"
+#include "gimbal/foc_gimbal.h"
+#include "gimbal/maixcam2_protocol.h"
 
 #include <math.h>
 #include <stddef.h>
 
-/**
- * @brief 任务运行时上下文结构体
- */
 typedef struct
 {
     e2025_task_id_t    id;
@@ -19,6 +17,7 @@ typedef struct
     uint32_t           state_enter_ms;
     uint32_t           aim_start_ms;
     float              segment_start_travel_mm;
+    float              travel_global_mm;
     float              circle_phase_deg;
     float              heading_accum_deg;
     float              prev_heading_deg;
@@ -26,6 +25,13 @@ typedef struct
     bool               performing_turn;
     float              turn_target_heading;
     t8_road_detector_t road_det;
+    float              aim_yaw_deg;
+    float              aim_pitch_deg;
+    float              aim_prev_error_x;
+    float              aim_prev_error_y;
+    uint32_t           aim_locked_samples;
+    bool               aim_locked;
+    bool               is_circle_task;
 } e2025_task_context_t;
 
 static e2025_task_context_t g_e2025_tasks[E2025_TASK_COUNT];
@@ -114,7 +120,7 @@ static void e2025_set_fault(e2025_task_context_t *task,
     }
 }
 
-/* ==================== 航向积分计圈 ==================== */
+/* ==================== 航向积分 ==================== */
 
 static float e2025_unwrap_heading_delta(float current, float previous)
 {
@@ -157,12 +163,62 @@ static void e2025_heading_accum_update(e2025_task_context_t *task,
     task->prev_heading_deg   = current_heading_deg;
 }
 
-/* ==================== 车辆状态读取 ==================== */
+/* ==================== 圈数追踪 (AND 逻辑) ==================== */
+
+static void e2025_update_lap_count(e2025_task_context_t *task,
+    const e2025_vehicle_state_t *state)
+{
+    uint32_t min_lap;
+
+    if (state->lap_count_dist <= state->lap_count_heading)
+    {
+        min_lap = state->lap_count_dist;
+    }
+    else
+    {
+        min_lap = state->lap_count_heading;
+    }
+
+    if (min_lap > task->lap_current)
+    {
+        task->lap_current = min_lap;
+    }
+}
+
+/* ==================== 车辆状态读取 (含姿态) ==================== */
+
+static void e2025_read_vehicle_pose(e2025_vehicle_state_t *state,
+    e2025_task_context_t *task, uint32_t now_ms)
+{
+    h2024_vehicle_state_t h_state;
+
+    (void)car_read_state(&h_state, now_ms);
+
+    state->timestamp_ms     = now_ms;
+    state->yaw_deg          = h_state.heading_deg;
+    state->pitch_deg        = 0.0f;
+    state->roll_deg         = 0.0f;
+    state->wz_dps           = 0.0f;
+    state->on_line          = h_state.on_line;
+    state->travel_mm        = h_state.travel_mm;
+    state->travel_global_mm = task->travel_global_mm;
+    state->line_enter_count = h_state.line_enter_count;
+    state->line_exit_count  = h_state.line_exit_count;
+
+    state->heading_accum_deg = task->heading_accum_deg;
+    state->lap_count_dist    = (uint32_t)(state->travel_global_mm
+                                / (float)E2025_TRACK_PERIMETER_MM);
+    state->lap_count_heading = (uint32_t)(fabsf(task->heading_accum_deg)
+                                / E2025_HEADING_PER_LAP_DEG);
+    state->lap_count         = task->lap_current;
+}
 
 static bool e2025_read_vehicle_state(e2025_task_context_t *task,
     e2025_vehicle_state_t *state, uint32_t now_ms)
 {
     h2024_vehicle_state_t h_state;
+    float ax, ay, az;
+    float az_abs;
 
     if (state == NULL)
     {
@@ -178,13 +234,22 @@ static bool e2025_read_vehicle_state(e2025_task_context_t *task,
 
     e2025_heading_accum_update(task, h_state.heading_deg);
 
+    car_get_imu_accel(&ax, &ay, &az);
+    az_abs = fabsf(az);
+
     state->heading_deg       = h_state.heading_deg;
+    state->pitch_deg         = (az_abs > 0.01f)
+                             ? atan2f(-ax, az) * 57.29578f : 0.0f;
+    state->roll_deg          = (az_abs > 0.01f)
+                             ? atan2f(ay, az) * 57.29578f : 0.0f;
+    state->wz_dps            = car_get_wz_dps();
     state->heading_accum_deg = task->heading_accum_deg;
     state->on_line           = h_state.on_line;
     state->travel_mm         = h_state.travel_mm;
+    state->travel_global_mm  = task->travel_global_mm;
     state->line_enter_count  = h_state.line_enter_count;
     state->line_exit_count   = h_state.line_exit_count;
-    state->lap_count_dist    = (uint32_t)(state->travel_mm
+    state->lap_count_dist    = (uint32_t)(state->travel_global_mm
                                 / (float)E2025_TRACK_PERIMETER_MM);
     state->lap_count_heading = (uint32_t)(fabsf(task->heading_accum_deg)
                                 / E2025_HEADING_PER_LAP_DEG);
@@ -197,11 +262,13 @@ static void e2025_complete(e2025_task_context_t *task, uint32_t now_ms)
 {
     car_stop(now_ms);
     task->performing_turn = false;
+    task->aim_locked = false;
     if (e2025_task_needs_gimbal(task->id))
     {
-        gimbal_stop(&g_gimbal);
+        (void)foc_gimbal_stop(&g_foc_gimbal);
     }
     task->state = E2025_STATE_DONE;
+    (void)now_ms;
 }
 
 static void e2025_enter_state(e2025_task_context_t *task,
@@ -211,44 +278,89 @@ static void e2025_enter_state(e2025_task_context_t *task,
     task->state_enter_ms = now_ms;
 }
 
-/* ==================== 圈数追踪（双重验证） ==================== */
-
-static void e2025_update_lap_count(e2025_task_context_t *task,
-    const e2025_vehicle_state_t *state)
-{
-    uint32_t combined_lap;
-
-    if (state->lap_count_dist >= state->lap_count_heading)
-    {
-        combined_lap = state->lap_count_dist;
-    }
-    else
-    {
-        combined_lap = state->lap_count_heading;
-    }
-
-    if (combined_lap > task->lap_current)
-    {
-        task->lap_current = combined_lap;
-    }
-}
-
-/* ==================== 瞄准控制 ==================== */
+/* ==================== FOC 瞄准控制 (视觉闭环) ==================== */
 
 static void e2025_aim_start(e2025_task_context_t *task, uint32_t now_ms)
 {
-    gimbal_enable(&g_gimbal, true);
-    gimbal_move_to(&g_gimbal, 0.0f, 0.0f);
-    task->aim_start_ms = now_ms;
+    (void)foc_gimbal_enable(&g_foc_gimbal, true);
+    (void)foc_gimbal_move_to(&g_foc_gimbal, 0.0f, 0.0f);
+    task->aim_yaw_deg       = 0.0f;
+    task->aim_pitch_deg     = 0.0f;
+    task->aim_prev_error_x  = 0.0f;
+    task->aim_prev_error_y  = 0.0f;
+    task->aim_locked_samples = 0u;
+    task->aim_locked        = false;
+    task->aim_start_ms      = now_ms;
+}
+
+static bool e2025_aim_read_target(MaixVisionTarget *target,
+    uint32_t *rx_time_ms)
+{
+    return maixcam2_get_latest_target(target, rx_time_ms);
 }
 
 static void e2025_aim_update(e2025_task_context_t *task, uint32_t now_ms)
 {
-    (void)task;
-    (void)now_ms;
+    MaixVisionTarget target;
+    uint32_t         rx_time;
+    float            error_dx;
+    float            error_dy;
+    float            delta_yaw;
+    float            delta_pitch;
+
+    if (!e2025_aim_read_target(&target, &rx_time))
+    {
+        return;
+    }
+
+    if (now_ms - rx_time > E2025_AIM_FRESHNESS_MS)
+    {
+        return;
+    }
+
+    if (!target.target_valid
+        || !maixcam2_target_semantically_valid(&target))
+    {
+        task->aim_locked_samples = 0u;
+        task->aim_locked         = false;
+        return;
+    }
+
+    error_dx   = (float)target.error_x;
+    error_dy   = (float)target.error_y;
+    delta_yaw  = error_dx * E2025_AIM_PIXEL_TO_DEG * E2025_AIM_KP
+               + (error_dx - task->aim_prev_error_x) * E2025_AIM_PIXEL_TO_DEG
+               * E2025_AIM_KD;
+    delta_pitch = error_dy * E2025_AIM_PIXEL_TO_DEG * E2025_AIM_KP
+                + (error_dy - task->aim_prev_error_y) * E2025_AIM_PIXEL_TO_DEG
+                * E2025_AIM_KD;
+
+    task->aim_yaw_deg   += delta_yaw;
+    task->aim_pitch_deg += delta_pitch;
+
+    task->aim_prev_error_x = error_dx;
+    task->aim_prev_error_y = error_dy;
+
+    (void)foc_gimbal_move_to_fast(&g_foc_gimbal, task->aim_yaw_deg,
+                                  task->aim_pitch_deg);
+
+    if ((uint32_t)fabsf(error_dx) < E2025_AIM_ERROR_THRESHOLD_PX
+        && (uint32_t)fabsf(error_dy) < E2025_AIM_ERROR_THRESHOLD_PX)
+    {
+        task->aim_locked_samples++;
+        if (task->aim_locked_samples >= E2025_AIM_LOCK_SAMPLES)
+        {
+            task->aim_locked = true;
+        }
+    }
+    else
+    {
+        task->aim_locked_samples = 0u;
+        task->aim_locked         = false;
+    }
 }
 
-/* ==================== 画圆控制 ==================== */
+/* ==================== 画圆控制 (正确角度换算) ==================== */
 
 static void e2025_circle_update(e2025_task_context_t *task,
     float progress, uint32_t now_ms)
@@ -258,10 +370,12 @@ static void e2025_circle_update(e2025_task_context_t *task,
     float pitch_deg;
 
     angle_rad = progress * 2.0f * 3.14159f;
-    yaw_deg   = E2025_TARGET_CIRCLE_RADIUS_CM * cosf(angle_rad);
-    pitch_deg = E2025_TARGET_CIRCLE_RADIUS_CM * sinf(angle_rad);
+    yaw_deg   = atanf(E2025_TARGET_CIRCLE_RADIUS_CM * cosf(angle_rad)
+                / E2025_TARGET_DISTANCE_CM) * 57.29578f;
+    pitch_deg = atanf(E2025_TARGET_CIRCLE_RADIUS_CM * sinf(angle_rad)
+                / E2025_TARGET_DISTANCE_CM) * 57.29578f;
 
-    gimbal_move_to(&g_gimbal, yaw_deg, pitch_deg);
+    (void)foc_gimbal_move_to_fast(&g_foc_gimbal, yaw_deg, pitch_deg);
     task->circle_phase_deg = progress * 360.0f;
     (void)now_ms;
 }
@@ -297,19 +411,44 @@ static void e2025_start_turn(e2025_task_context_t *task,
     car_stop(now_ms);
 }
 
+static void e2025_accum_global_travel(e2025_task_context_t *task,
+    float current_travel_mm)
+{
+    float delta;
+
+    delta = current_travel_mm - task->segment_start_travel_mm;
+    if (delta > 0.0f)
+    {
+        task->travel_global_mm += delta;
+    }
+    task->segment_start_travel_mm = current_travel_mm;
+}
+
 static void e2025_line_follow_with_detection(e2025_task_context_t *task,
     const e2025_vehicle_state_t *state, uint32_t now_ms)
 {
-    uint8_t         line_bits;
-    t8_road_type_t  turn_type;
+    uint8_t        line_bits;
+    t8_road_type_t turn_type;
 
     if (task->performing_turn)
     {
         if (car_align_heading(task->turn_target_heading, now_ms))
         {
+            float current_travel = state->travel_mm;
+
             task->performing_turn = false;
             t8_road_detector_reset(&task->road_det);
-            car_reset_odometry();
+
+            if (!task->is_circle_task)
+            {
+                car_reset_odometry();
+                task->travel_global_mm     += current_travel;
+                task->segment_start_travel_mm = 0.0f;
+            }
+            else
+            {
+                e2025_accum_global_travel(task, current_travel);
+            }
         }
         return;
     }
@@ -318,6 +457,8 @@ static void e2025_line_follow_with_detection(e2025_task_context_t *task,
 
     if (t8_road_detector_confirm(&task->road_det, line_bits))
     {
+        e2025_accum_global_travel(task, state->travel_mm);
+
         turn_type = t8_road_detector_type(&task->road_det);
         e2025_start_turn(task, state->heading_deg, turn_type, now_ms);
         t8_road_detector_reset(&task->road_det);
@@ -325,6 +466,16 @@ static void e2025_line_follow_with_detection(e2025_task_context_t *task,
     }
 
     car_follow_line(now_ms);
+}
+
+static void e2025_circle_progress(e2025_task_context_t *task,
+    const e2025_vehicle_state_t *state, float *progress)
+{
+    float phase;
+
+    phase = fmodf(state->travel_global_mm, (float)E2025_TRACK_PERIMETER_MM)
+          / (float)E2025_TRACK_PERIMETER_MM;
+    *progress = (float)(task->lap_current) + phase;
 }
 
 /* ==================== 各状态运行逻辑 ==================== */
@@ -344,6 +495,12 @@ static void e2025_run_aiming(e2025_task_context_t *task,
     const e2025_vehicle_state_t *state, uint32_t now_ms)
 {
     e2025_aim_update(task, now_ms);
+
+    if (task->aim_locked)
+    {
+        e2025_complete(task, now_ms);
+        return;
+    }
 
     if (task->id == E2025_BASE_TASK_2
         && (now_ms - task->aim_start_ms) >= E2025_B2_AIM_TIMEOUT_MS)
@@ -378,10 +535,7 @@ static void e2025_run_circle_sync(e2025_task_context_t *task,
     float progress;
 
     e2025_line_follow_with_detection(task, state, now_ms);
-
-    progress = (float)(task->lap_current)
-             + fmodf(state->travel_mm, (float)E2025_TRACK_PERIMETER_MM)
-             / (float)E2025_TRACK_PERIMETER_MM;
+    e2025_circle_progress(task, state, &progress);
     e2025_circle_update(task, progress, now_ms);
 
     if (task->lap_current >= task->lap_target)
@@ -432,8 +586,10 @@ static void e2025_task_start(uint32_t now_ms, void *context)
     task->deadline_ms             = now_ms + e2025_task_timeout_ms(task->id);
     task->state_enter_ms          = now_ms;
     task->segment_start_travel_mm = state.travel_mm;
+    task->travel_global_mm        = 0.0f;
     task->circle_phase_deg        = 0.0f;
     task->aim_start_ms            = 0u;
+    task->is_circle_task          = e2025_task_is_circle_sync(task->id);
 
     e2025_heading_accum_reset(task);
     e2025_turn_state_reset(task);
@@ -444,7 +600,7 @@ static void e2025_task_start(uint32_t now_ms, void *context)
     }
     else if (e2025_task_needs_gimbal(task->id))
     {
-        gimbal_enable(&g_gimbal, true);
+        (void)foc_gimbal_enable(&g_foc_gimbal, true);
     }
 
     e2025_enter_state(task, e2025_get_running_state(task->id), now_ms);
@@ -511,7 +667,7 @@ static void e2025_task_stop(uint32_t now_ms, void *context)
     car_stop(now_ms);
     if (e2025_task_needs_gimbal(task->id))
     {
-        gimbal_stop(&g_gimbal);
+        (void)foc_gimbal_stop(&g_foc_gimbal);
     }
     task->state = E2025_STATE_STOPPED;
 }
