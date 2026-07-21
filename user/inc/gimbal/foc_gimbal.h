@@ -23,19 +23,19 @@
 
 /* ---- FOC 云台 UART 接口 ---- */
 #ifndef FOC_GIMBAL_UART
-#define FOC_GIMBAL_UART       UART_1
+#define FOC_GIMBAL_UART       BOARD_FOC_GIMBAL_UART
 #endif
 
 #ifndef FOC_GIMBAL_TX_PIN
-#define FOC_GIMBAL_TX_PIN     UART1_TX_A8
+#define FOC_GIMBAL_TX_PIN     BOARD_FOC_GIMBAL_UART_TX
 #endif
 
 #ifndef FOC_GIMBAL_RX_PIN
-#define FOC_GIMBAL_RX_PIN     UART1_RX_A9
+#define FOC_GIMBAL_RX_PIN     BOARD_FOC_GIMBAL_UART_RX
 #endif
 
 #ifndef FOC_GIMBAL_UART_BAUD
-#define FOC_GIMBAL_UART_BAUD  115200u
+#define FOC_GIMBAL_UART_BAUD  BOARD_FOC_GIMBAL_UART_BAUD
 #endif
 
 /* ---- 默认参数 ---- */

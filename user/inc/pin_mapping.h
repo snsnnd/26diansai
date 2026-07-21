@@ -86,4 +86,10 @@
 #define BOARD_MAIXCAM_UART_RX   UART3_RX_B3             /* PB3 */
 #define BOARD_MAIXCAM_BAUDRATE  115200u                  /* 通信波特率 115200 */
 
+/* FOC 无刷云台 (STM32F103 2804 驱动板) */
+#define BOARD_FOC_GIMBAL_UART       UART_1
+#define BOARD_FOC_GIMBAL_UART_TX    UART1_TX_A8
+#define BOARD_FOC_GIMBAL_UART_RX    UART1_RX_A9
+#define BOARD_FOC_GIMBAL_UART_BAUD  115200u
+
 #endif /* _PIN_MAPPING_H_ */
