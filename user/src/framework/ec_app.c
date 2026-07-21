@@ -95,8 +95,11 @@ static void ec_app_task(uint32_t now_ms, void *context)
     (void)context;
 
 #if EC_APP_PROFILE == EC_APP_PROFILE_HARDWARE_TEST
-    hardware_test_run();    /* 硬件测试模式下运行测试逻辑 */
+    hardware_test_run();
 #endif
+}
+#endif
+
 #if EC_APP_PROFILE == EC_APP_PROFILE_LINE_CAR
 static void ec_vision_task(uint32_t now_ms, void *context)
 {

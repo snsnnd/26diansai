@@ -237,7 +237,7 @@ static bool e2025_read_vehicle_state(e2025_task_context_t *task,
     car_get_imu_accel(&ax, &ay, &az);
     az_abs = fabsf(az);
 
-    state->heading_deg       = h_state.heading_deg;
+    state->yaw_deg           = h_state.heading_deg;
     state->pitch_deg         = (az_abs > 0.01f)
                              ? atan2f(-ax, az) * 57.29578f : 0.0f;
     state->roll_deg          = (az_abs > 0.01f)
@@ -460,7 +460,7 @@ static void e2025_line_follow_with_detection(e2025_task_context_t *task,
         e2025_accum_global_travel(task, state->travel_mm);
 
         turn_type = t8_road_detector_type(&task->road_det);
-        e2025_start_turn(task, state->heading_deg, turn_type, now_ms);
+        e2025_start_turn(task, state->yaw_deg, turn_type, now_ms);
         t8_road_detector_reset(&task->road_det);
         return;
     }
