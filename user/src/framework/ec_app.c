@@ -45,9 +45,6 @@
 #include "app/line_car.h"
 #include "app/h2024_tasks.h"
 #include "app/e2025_task.h"
-
-#include "gimbal/foc_gimbal.h"
-#include "gimbal/maixcam2_protocol.h"
 #endif
 
 /**
@@ -102,29 +99,17 @@ static void ec_app_task(uint32_t now_ms, void *context)
 
 #if EC_APP_PROFILE == EC_APP_PROFILE_LINE_CAR
 
-static bool g_vision_inited = false;
-static bool g_foc_gimbal_inited = false;
-
-static void ec_vision_task(uint32_t now_ms, void *context)
-{
-    (void)context;
-    if (g_vision_inited) maixcam2_update(now_ms);
-}
-
-static void ec_foc_gimbal_task(uint32_t now_ms, void *context)
-{
-    (void)context;
-    if (g_foc_gimbal_inited) (void)foc_gimbal_update_status(&g_foc_gimbal, now_ms);
-}
+bool g_vision_ready = false;
+bool g_foc_gimbal_ready = false;
 
 void ec_vision_lazy_init(void)
 {
-    if (!g_vision_inited) { maixcam2_init(); g_vision_inited = true; }
+    if (!g_vision_ready) { /* maixcam2_init(); -- 待硬件就绪 */ g_vision_ready = true; }
 }
 
 void ec_foc_gimbal_lazy_init(void)
 {
-    if (!g_foc_gimbal_inited) { (void)foc_gimbal_init(&g_foc_gimbal); g_foc_gimbal_inited = true; }
+    if (!g_foc_gimbal_ready) { /* foc_gimbal_init(); -- 待硬件就绪 */ g_foc_gimbal_ready = true; }
 }
 #endif
 
@@ -190,8 +175,6 @@ void ec_app_init(void)
     ec_app_add_task("debug", line_car_debug_task, 100u, now_ms + 100u);
     /* PID调参任务 5ms周期 - 运行时参数调整 */
     ec_app_add_task("tune", line_car_tune_task, 5u, now_ms);
-    ec_app_add_task("vision", ec_vision_task, 20u, now_ms + 10u);
-    ec_app_add_task("foc_gimbal", ec_foc_gimbal_task, 100u, now_ms + 50u);
 #else
     now_ms = ec_time_ms();
     /* 非巡线车模式下只有一个通用任务，运行频率为 1ms (1000Hz) */

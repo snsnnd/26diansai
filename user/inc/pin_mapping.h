@@ -56,31 +56,32 @@
 /*=================================================== 云台 / 视觉 ===================================================*/
 
 /*
- * EMM 步进云台 + FOC 无刷云台共用 UART1 (B4/B5)。
- * 两者不会同时启用，根据 E2025_GIMBAL_FOC 选择后端。
+ * EMM 步进云台通信使用 UART2 (半双工模式)。
+ * UART2 同时被蓝牙调试复用，但两者不会同时编译。
  */
-#define BOARD_EMM_UART           UART_1
-#define BOARD_EMM_UART_TX        UART1_TX_B4
-#define BOARD_EMM_UART_RX        UART1_RX_B5
+#define BOARD_EMM_UART           UART_2
+#define BOARD_EMM_UART_TX        UART2_TX_B15
+#define BOARD_EMM_UART_RX        UART2_RX_B16
 
+/*
+ * FOC 无刷云台 (STM32F103 2804 驱动板) 通过 UART 控制。
+ * 默认使用 UART1 PA8/PA9 —— 若与 T8 或电机 PWM 冲突需重新分配。
+ */
 #define BOARD_FOC_GIMBAL_UART       UART_1
-#define BOARD_FOC_GIMBAL_UART_TX    UART1_TX_B4
-#define BOARD_FOC_GIMBAL_UART_RX    UART1_RX_B5
+#define BOARD_FOC_GIMBAL_UART_TX    UART1_TX_A8
+#define BOARD_FOC_GIMBAL_UART_RX    UART1_RX_A9
 #define BOARD_FOC_GIMBAL_UART_BAUD  115200u
 
 /*
- * MaixCam2 视觉模块使用 UART2 (B15/B16)。
- * 注意: Line-car 模式调试串口也使用 UART2，两者不会同时编译。
+ * MaixCam2 视觉模块使用 UART3 (B2/B3)。
  */
-#define BOARD_MAIXCAM_UART      UART_2
-#define BOARD_MAIXCAM_UART_TX   UART2_TX_B15
-#define BOARD_MAIXCAM_UART_RX   UART2_RX_B16
+#define BOARD_MAIXCAM_UART      UART_3
+#define BOARD_MAIXCAM_UART_TX   UART3_TX_B2
+#define BOARD_MAIXCAM_UART_RX   UART3_RX_B3
 #define BOARD_MAIXCAM_BAUDRATE  115200u
 
 /*
  * T8 灰度传感器默认使用 UART1（A8/A9）。
- * 在 line-car 模式中，调试串口被映射到蓝牙 UART2，
- * 因此 UART1 空闲出来可供 T8 使用。
  */
 #define BOARD_T8_UART           UART_1
 #define BOARD_T8_UART_TX        UART1_TX_A8
