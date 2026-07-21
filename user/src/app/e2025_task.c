@@ -596,10 +596,14 @@ static void e2025_task_start(uint32_t now_ms, void *context)
 
     if (e2025_task_is_aim_only(task->id))
     {
+        ec_vision_lazy_init();
+        ec_foc_gimbal_lazy_init();
         e2025_aim_start(task, now_ms);
     }
     else if (e2025_task_needs_gimbal(task->id))
     {
+        ec_vision_lazy_init();
+        ec_foc_gimbal_lazy_init();
         (void)foc_gimbal_enable(&g_foc_gimbal, true);
     }
 

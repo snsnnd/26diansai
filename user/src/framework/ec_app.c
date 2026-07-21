@@ -101,16 +101,30 @@ static void ec_app_task(uint32_t now_ms, void *context)
 #endif
 
 #if EC_APP_PROFILE == EC_APP_PROFILE_LINE_CAR
+
+static bool g_vision_inited = false;
+static bool g_foc_gimbal_inited = false;
+
 static void ec_vision_task(uint32_t now_ms, void *context)
 {
     (void)context;
-    maixcam2_update(now_ms);
+    if (g_vision_inited) maixcam2_update(now_ms);
 }
 
 static void ec_foc_gimbal_task(uint32_t now_ms, void *context)
 {
     (void)context;
-    (void)foc_gimbal_update_status(&g_foc_gimbal, now_ms);
+    if (g_foc_gimbal_inited) (void)foc_gimbal_update_status(&g_foc_gimbal, now_ms);
+}
+
+void ec_vision_lazy_init(void)
+{
+    if (!g_vision_inited) { maixcam2_init(); g_vision_inited = true; }
+}
+
+void ec_foc_gimbal_lazy_init(void)
+{
+    if (!g_foc_gimbal_inited) { (void)foc_gimbal_init(&g_foc_gimbal); g_foc_gimbal_inited = true; }
 }
 #endif
 
@@ -147,10 +161,6 @@ void ec_app_init(void)
         h2024_tasks_register(mgr);
         e2025_tasks_register(mgr);
     }
-
-    maixcam2_init();
-    (void)foc_gimbal_init(&g_foc_gimbal);
-    (void)foc_gimbal_enable(&g_foc_gimbal, true);
 #else                                               /* 空应用模式（默认） */
     printf("[APP] profile=empty\r\n");
 #endif

@@ -106,4 +106,7 @@ bool               e2025_tasks_is_active(const ec_mode_manager_t *manager);
 e2025_task_state_t e2025_tasks_active_state(const ec_mode_manager_t *manager);
 const char        *e2025_tasks_active_status(const ec_mode_manager_t *manager);
 
+void ec_vision_lazy_init(void);
+void ec_foc_gimbal_lazy_init(void);
+
 #endif
